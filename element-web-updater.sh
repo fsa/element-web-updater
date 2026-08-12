@@ -14,8 +14,33 @@ TMP_DIR="/tmp"
 REPO="element-hq/element-web"
 
 command -v curl >/dev/null 2>&1 || { echo "cURL is required and is not found"; exit 1; }
+command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required and is not found"; exit 1; }
 
 if [ -f ".env" ]; then source .env; fi
+
+# Guard against dangerous or misconfigured paths before doing anything else.
+if [ "$TMP_DIR" = "$DESTINATION" ]; then
+  echo "Error: TMP_DIR must be different from DESTINATION."
+  exit 1
+fi
+
+case "$DESTINATION" in
+  /)
+    echo "Error: DESTINATION must not be the filesystem root."
+    exit 1
+    ;;
+  "$HOME")
+    echo "Error: DESTINATION must not be the home directory."
+    exit 1
+    ;;
+esac
+
+if [ ! -d "$TMP_DIR" ]; then
+  mkdir -p "$TMP_DIR" || { echo "Error: Cannot create TMP_DIR $TMP_DIR."; exit 1; }
+elif [ ! -w "$TMP_DIR" ]; then
+  echo "Error: TMP_DIR $TMP_DIR is not writable."
+  exit 1
+fi
 
 if [ ! -d "$DESTINATION" ]; then
   echo "Destination $DESTINATION does not exist"
@@ -30,13 +55,29 @@ if [ -f "$DESTINATION/version" ]; then
 else
     VERSION_INSTALLED=""
 fi
-VERSION_LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
-    grep -oP '"tarball_url": ".*/tarball/v\K([^/]*)(?=")')
+API_URL="https://api.github.com/repos/${REPO}/releases/latest"
+if ! RELEASE_JSON=$(curl -fsSL "$API_URL"); then
+    echo "Error: Failed to fetch release information from GitHub API."
+    exit 1
+fi
+
+VERSION_LATEST=$(printf '%s' "$RELEASE_JSON" | sed -nE 's/.*"tag_name": "v([^"]+)".*/\1/p')
 
 if [ -z "$VERSION_LATEST" ]; then
     echo "Error: Failed to determine the latest Element Web version."
     exit 1
 fi
+
+# SHA-256 digest of the release asset, taken from the same API response.
+DIGEST=$(printf '%s' "$RELEASE_JSON" | awk -v v="$VERSION_LATEST" '
+    index($0, "\"name\": \"element-v" v ".tar.gz\"") { capture = 1 }
+    capture && /"digest": "sha256:/ {
+        sub(/^.*"digest": "sha256:/, "")
+        sub(/".*$/, "")
+        print
+        exit
+    }
+')
 
 if [ "$VERSION_INSTALLED" == "$VERSION_LATEST" ]; then
   echo "Element Web version $VERSION_LATEST is already installed. No update is required.";  
@@ -78,6 +119,19 @@ if ! curl $CURL_OPTIONS -o "$ARCHIVE_FILE" "$ARCHIVE_URL"; then
     exit 1
 fi
 
+echo "Verifying SHA-256 checksum..."
+
+if [ -n "$DIGEST" ]; then
+    if ! printf '%s  %s\n' "$DIGEST" "$ARCHIVE_FILE" | sha256sum -c --quiet; then
+        echo "Error: SHA-256 checksum of the downloaded archive does not match."
+        rm -f "$ARCHIVE_FILE"
+        rm -rf "$EXTRACT_DIR"
+        exit 1
+    fi
+else
+    echo "Warning: No SHA-256 digest found for the release asset, skipping verification."
+fi
+
 echo "Extracting Element Web $VERSION_LATEST..."
 
 if ! tar -xzf "$ARCHIVE_FILE" \
@@ -89,9 +143,25 @@ if ! tar -xzf "$ARCHIVE_FILE" \
     exit 1
 fi
 
+# Sanity check: make sure the archive actually contains Element Web files
+# before touching the current installation. The `version` file is required
+# because the script relies on it to track the installed version.
+if [ ! -f "$EXTRACT_DIR/index.html" ] || [ ! -f "$EXTRACT_DIR/version" ]; then
+    echo "Error: The downloaded archive does not look like an Element Web release."
+    echo "Element Web may have changed its release structure and the script needs to be updated."
+    echo "The current installation was left untouched."
+    rm -f "$ARCHIVE_FILE"
+    rm -rf "$EXTRACT_DIR"
+    exit 1
+fi
+
 echo "Replacing installed Element Web files..."
 
-find "$DESTINATION" -mindepth 1 ! -name 'config.json' -exec rm -rf {} +
+find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -exec rm -rf {} +
+
+# Remove the release's own config.json (if any) so that the preserved
+# user configuration in DESTINATION is not overwritten by `cp -a`.
+rm -f "$EXTRACT_DIR/config.json"
 
 cp -a "$EXTRACT_DIR"/. "$DESTINATION"/
 
