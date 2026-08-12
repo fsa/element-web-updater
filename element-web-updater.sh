@@ -73,6 +73,10 @@ if [ ! -d "$DESTINATION" ]; then
     err "Destination $DESTINATION does not exist"
 fi
 
+if [ ! -w "$DESTINATION" ]; then
+    err "Destination $DESTINATION is not writable by the current user."
+fi
+
 if [ -f "$DESTINATION/version" ]; then
     # The release archive ships its own `version` file (e.g. `v1.12.25`),
     # which is copied into DESTINATION by `cp -a`. Normalize it so that the
