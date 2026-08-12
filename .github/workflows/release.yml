@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Syntax check
+        run: bash -n element-web-updater.sh
+
+      - name: Build archive
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="dist/element-web-updater-${VERSION}"
+          mkdir -p "$STAGE"
+          cp element-web-updater.sh README.md LICENSE "$STAGE/"
+          tar -czf "dist/element-web-updater-${VERSION}.tar.gz" -C dist "element-web-updater-${VERSION}"
+          ( cd dist && sha256sum "element-web-updater-${VERSION}.tar.gz" > SHA256SUMS )
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/element-web-updater-*.tar.gz
+            dist/SHA256SUMS
+          generate_release_notes: true

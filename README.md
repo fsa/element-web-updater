@@ -138,6 +138,21 @@ Files are copied with the permissions and ownership of the user running the scri
 
 The script can also be executed periodically using `systemd` timers. See [Scheduled updates (systemd timer)](#scheduled-updates-systemd-timer).
 
+## Releases
+
+Release archives are published on the [Releases](https://github.com/fsa/element-web-updater/releases) page and contain:
+
+- `element-web-updater-<version>.tar.gz` — the script, the `README.md` and the `LICENSE` (MIT);
+- `SHA256SUMS` — checksums of the archive for integrity verification.
+
+Verify the archive before using it:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+The project is licensed under the [MIT license](LICENSE).
+
 ## Scheduled updates (systemd timer)
 
 The updater can be run on a schedule with a systemd timer. The service should run as the user that runs the web server (for example `www-data`), so that the installed files get the correct ownership and permissions.
