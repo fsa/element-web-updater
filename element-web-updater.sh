@@ -16,7 +16,24 @@ REPO="element-hq/element-web"
 command -v curl >/dev/null 2>&1 || { echo "cURL is required and is not found"; exit 1; }
 command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required and is not found"; exit 1; }
 
-if [ -f ".env" ]; then source .env; fi
+# Load the .env file without executing it as shell code: only the allowed
+# variables are read, quoted values are stripped, comments and empty lines
+# are ignored.
+if [ -f ".env" ]; then
+    while IFS='=' read -r key value; do
+        [ -z "$key" ] && continue
+        case "$key" in
+            \#*) continue ;;
+        esac
+        value="${value%\"}"
+        value="${value#\"}"
+        case "$key" in
+            DESTINATION) DESTINATION="$value" ;;
+            TMP_DIR) TMP_DIR="$value" ;;
+            REPO) REPO="$value" ;;
+        esac
+    done < .env
+fi
 
 # Guard against dangerous or misconfigured paths before doing anything else.
 if [ "$TMP_DIR" = "$DESTINATION" ]; then
