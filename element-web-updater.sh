@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # Installation directory.
-# Can be overridden in the .env file.
-DESTINATION="$HOME/public_html"
+# There is no default: DESTINATION must always be provided, either in
+# the .env file or by setting the variable here.
+# DESTINATION="/var/www/element"
 
 # Directory used for downloading and temporarily extracting files.
 # Must be different from the installation directory.
@@ -47,6 +48,11 @@ if [ -f ".env" ]; then
             REPO) REPO="$value" ;;
         esac
     done < .env
+fi
+
+# DESTINATION is mandatory and has no default.
+if [ -z "${DESTINATION:-}" ]; then
+    err "DESTINATION is not set. Specify it in the .env file or at the top of the script."
 fi
 
 # Guard against dangerous or misconfigured paths before doing anything else.

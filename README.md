@@ -36,11 +36,7 @@ The script is configured using variables at the very top of the script. All of t
 
 The directory where Element Web is installed.
 
-Default:
-
-```bash
-DESTINATION="$HOME/public_html"
-```
+There is **no default**: `DESTINATION` must always be provided, either in the `.env` file or at the top of the script.
 
 Example:
 
