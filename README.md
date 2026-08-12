@@ -155,7 +155,7 @@ The updater can be run on a schedule with a systemd timer. The service should ru
 
 ### Service unit
 
-Create `/etc/systemd/system/element-web-update.service`:
+Create `/etc/systemd/system/element-web-updater.service`:
 
 ```ini
 [Unit]
@@ -186,7 +186,7 @@ Notes on the service unit:
 
 ### Timer unit
 
-Create `/etc/systemd/system/element-web-update.timer`:
+Create `/etc/systemd/system/element-web-updater.timer`:
 
 ```ini
 [Unit]
@@ -217,21 +217,21 @@ Then enable and start the timer:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now element-web-update.timer
+sudo systemctl enable --now element-web-updater.timer
 ```
 
 Check the schedule and the results of the last run:
 
 ```bash
-systemctl list-timers element-web-update.timer
-systemctl status element-web-update.service
-journalctl -u element-web-update.service
+systemctl list-timers element-web-updater.timer
+systemctl status element-web-updater.service
+journalctl -u element-web-updater.service
 ```
 
 To trigger an update manually under the same conditions as the timer:
 
 ```bash
-sudo systemctl start element-web-update.service
+sudo systemctl start element-web-updater.service
 ```
 
 ### Notes
