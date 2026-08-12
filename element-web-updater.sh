@@ -23,7 +23,10 @@ if [ ! -d "$DESTINATION" ]; then
 fi
 
 if [ -f "$DESTINATION/version" ]; then
-    VERSION_INSTALLED=$(cat "$DESTINATION/version")
+    # The release archive ships its own `version` file (e.g. `v1.12.25`),
+    # which is copied into DESTINATION by `cp -a`. Normalize it so that the
+    # comparison with VERSION_LATEST (no `v` prefix) works.
+    VERSION_INSTALLED=$(cat "$DESTINATION/version" | sed -e 's/^v//' -e 's/[[:space:]]//g')
 else
     VERSION_INSTALLED=""
 fi
@@ -91,8 +94,6 @@ echo "Replacing installed Element Web files..."
 find "$DESTINATION" -mindepth 1 ! -name 'config.json' -exec rm -rf {} +
 
 cp -a "$EXTRACT_DIR"/. "$DESTINATION"/
-
-echo "$VERSION_LATEST" > "$DESTINATION/version"
 
 rm -f "$ARCHIVE_FILE"
 rm -rf "$EXTRACT_DIR"
