@@ -136,7 +136,98 @@ bash element-web-updater.sh
 
 Files are copied with the permissions and ownership of the user running the script. If your web server runs under a different user (for example `www-data`), make sure the installation directory is writable by the script's user, or run the script as the web server user and adjust ownership afterwards.
 
-The script can also be executed periodically using `systemd` timers or another scheduler.
+The script can also be executed periodically using `systemd` timers. See [Scheduled updates (systemd timer)](#scheduled-updates-systemd-timer).
+
+## Scheduled updates (systemd timer)
+
+The updater can be run on a schedule with a systemd timer. The service should run as the user that runs the web server (for example `www-data`), so that the installed files get the correct ownership and permissions.
+
+### Service unit
+
+Create `/etc/systemd/system/element-web-update.service`:
+
+```ini
+[Unit]
+Description=Update Element Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/element-web-updater
+ExecStart=/srv/element-web-updater/element-web-updater.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Notes on the service unit:
+
+- `User=` and `Group=` must be set to the user that runs the web server (here `www-data`). That user must be able to read and execute the updater script and to write to `DESTINATION`.
+- `WorkingDirectory=` must point to the directory that contains the updater's `.env` file — the script looks it up in the current working directory. If you do not use a `.env` file, point it to any directory and configure `DESTINATION`, `TMP_DIR` and `REPO` at the top of the script instead.
+- `PrivateTmp=true` gives the service an isolated temporary directory. With the default `TMP_DIR=/tmp` the download and extraction happen inside that private directory and are cleaned up automatically.
+- When run by systemd, stdout is not a terminal, so the script stays quiet and does not show a progress bar.
+
+### Timer unit
+
+Create `/etc/systemd/system/element-web-update.timer`:
+
+```ini
+[Unit]
+Description=Run the Element Web updater daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+- `OnCalendar=daily` runs the update once a day; other schedules are possible, for example `OnCalendar=*-*-* 03:00:00` for a fixed time.
+- `RandomizedDelaySec` spreads the run over up to 15 minutes to avoid load spikes.
+- `Persistent=true` runs a missed update right after boot if the machine was off at the scheduled time.
+
+### Enabling the timer
+
+Make sure the installation directory is writable by the web server user, and that the updater script and its `.env` file are readable by it:
+
+```bash
+sudo chown -R www-data:www-data /var/www/element
+```
+
+Then enable and start the timer:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now element-web-update.timer
+```
+
+Check the schedule and the results of the last run:
+
+```bash
+systemctl list-timers element-web-update.timer
+systemctl status element-web-update.service
+journalctl -u element-web-update.service
+```
+
+To trigger an update manually under the same conditions as the timer:
+
+```bash
+sudo systemctl start element-web-update.service
+```
+
+### Notes
+
+- If `DESTINATION` is not writable by the user set with `User=`, the update will fail. Either run the service as the owner of the installation directory, or change its ownership with `chown`.
+- With `ProtectSystem=full`, the directories `/usr`, `/boot` and `/etc` are read-only. `DESTINATION` and `TMP_DIR` must live outside of them; if that does not fit your setup, drop or adjust the hardening options.
+- The examples assume the web server runs under `www-data` and that `.env` contains `DESTINATION="/var/www/element"`. Adjust `User=`, `Group=`, `WorkingDirectory=` and the `chown` target to your environment.
 
 ## Configuration file
 
