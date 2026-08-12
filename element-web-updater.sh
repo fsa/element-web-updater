@@ -13,8 +13,22 @@ TMP_DIR="/tmp"
 # Can be overridden in the .env file.
 REPO="element-hq/element-web"
 
-command -v curl >/dev/null 2>&1 || { echo "cURL is required and is not found"; exit 1; }
-command -v sha256sum >/dev/null 2>&1 || { echo "sha256sum is required and is not found"; exit 1; }
+set -euo pipefail
+
+err() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
+cleanup() {
+    [ -n "${ARCHIVE_FILE:-}" ] && rm -f "$ARCHIVE_FILE"
+    [ -n "${EXTRACT_DIR:-}" ] && rm -rf "$EXTRACT_DIR"
+    return 0
+}
+trap cleanup EXIT
+
+command -v curl >/dev/null 2>&1 || err "cURL is required and is not found"
+command -v sha256sum >/dev/null 2>&1 || err "sha256sum is required and is not found"
 
 # Load the .env file without executing it as shell code: only the allowed
 # variables are read, quoted values are stripped, comments and empty lines
@@ -37,31 +51,26 @@ fi
 
 # Guard against dangerous or misconfigured paths before doing anything else.
 if [ "$TMP_DIR" = "$DESTINATION" ]; then
-  echo "Error: TMP_DIR must be different from DESTINATION."
-  exit 1
+    err "TMP_DIR must be different from DESTINATION."
 fi
 
 case "$DESTINATION" in
-  /)
-    echo "Error: DESTINATION must not be the filesystem root."
-    exit 1
-    ;;
-  "$HOME")
-    echo "Error: DESTINATION must not be the home directory."
-    exit 1
-    ;;
+    /)
+        err "DESTINATION must not be the filesystem root."
+        ;;
+    "$HOME")
+        err "DESTINATION must not be the home directory."
+        ;;
 esac
 
 if [ ! -d "$TMP_DIR" ]; then
-  mkdir -p "$TMP_DIR" || { echo "Error: Cannot create TMP_DIR $TMP_DIR."; exit 1; }
+    mkdir -p "$TMP_DIR" || err "Cannot create TMP_DIR $TMP_DIR."
 elif [ ! -w "$TMP_DIR" ]; then
-  echo "Error: TMP_DIR $TMP_DIR is not writable."
-  exit 1
+    err "TMP_DIR $TMP_DIR is not writable."
 fi
 
 if [ ! -d "$DESTINATION" ]; then
-  echo "Destination $DESTINATION does not exist"
-  exit 1
+    err "Destination $DESTINATION does not exist"
 fi
 
 if [ -f "$DESTINATION/version" ]; then
@@ -72,17 +81,16 @@ if [ -f "$DESTINATION/version" ]; then
 else
     VERSION_INSTALLED=""
 fi
+
 API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 if ! RELEASE_JSON=$(curl -fsSL "$API_URL"); then
-    echo "Error: Failed to fetch release information from GitHub API."
-    exit 1
+    err "Failed to fetch release information from GitHub API."
 fi
 
 VERSION_LATEST=$(printf '%s' "$RELEASE_JSON" | sed -nE 's/.*"tag_name": "v([^"]+)".*/\1/p')
 
 if [ -z "$VERSION_LATEST" ]; then
-    echo "Error: Failed to determine the latest Element Web version."
-    exit 1
+    err "Failed to determine the latest Element Web version."
 fi
 
 # SHA-256 digest of the release asset, taken from the same API response.
@@ -96,21 +104,21 @@ DIGEST=$(printf '%s' "$RELEASE_JSON" | awk -v v="$VERSION_LATEST" '
     }
 ')
 
-if [ "$VERSION_INSTALLED" == "$VERSION_LATEST" ]; then
-  echo "Element Web version $VERSION_LATEST is already installed. No update is required.";  
-  exit 0
+if [ "$VERSION_INSTALLED" = "$VERSION_LATEST" ]; then
+    echo "Element Web version $VERSION_LATEST is already installed. No update is required."
+    exit 0
 fi
 
 if [ -z "$VERSION_INSTALLED" ]; then
-  if [ -n "$(find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -print -quit)" ]; then
-    echo "Error: Element Web version was not detected, but the installation directory is not empty."
-    echo "Installation aborted to avoid overwriting existing files."
-    exit 1
-  fi
+    if [ -n "$(find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -print -quit)" ]; then
+        err "Element Web version was not detected, but the installation directory is not empty.
 
-  echo "Element Web is not installed. Installing version $VERSION_LATEST..."
+Installation aborted to avoid overwriting existing files."
+    fi
+
+    echo "Element Web is not installed. Installing version $VERSION_LATEST..."
 else
-  echo "Element Web $VERSION_INSTALLED found, updating to $VERSION_LATEST..."
+    echo "Element Web $VERSION_INSTALLED found, updating to $VERSION_LATEST..."
 fi
 
 ARCHIVE_URL="https://github.com/$REPO/releases/download/v${VERSION_LATEST}/element-v${VERSION_LATEST}.tar.gz"
@@ -124,26 +132,20 @@ rm -rf "$EXTRACT_DIR"
 mkdir -p "$EXTRACT_DIR"
 
 if [ -t 1 ]; then
-    CURL_OPTIONS="-fL --progress-bar"
+    CURL_OPTS=(-fL --progress-bar)
 else
-    CURL_OPTIONS="-fsSL"
+    CURL_OPTS=(-fsSL)
 fi
 
-if ! curl $CURL_OPTIONS -o "$ARCHIVE_FILE" "$ARCHIVE_URL"; then
-    echo "Error: Failed to download Element Web $VERSION_LATEST."
-    rm -f "$ARCHIVE_FILE"
-    rm -rf "$EXTRACT_DIR"
-    exit 1
+if ! curl "${CURL_OPTS[@]}" -o "$ARCHIVE_FILE" "$ARCHIVE_URL"; then
+    err "Failed to download Element Web $VERSION_LATEST."
 fi
 
 echo "Verifying SHA-256 checksum..."
 
 if [ -n "$DIGEST" ]; then
     if ! printf '%s  %s\n' "$DIGEST" "$ARCHIVE_FILE" | sha256sum -c --quiet; then
-        echo "Error: SHA-256 checksum of the downloaded archive does not match."
-        rm -f "$ARCHIVE_FILE"
-        rm -rf "$EXTRACT_DIR"
-        exit 1
+        err "SHA-256 checksum of the downloaded archive does not match."
     fi
 else
     echo "Warning: No SHA-256 digest found for the release asset, skipping verification."
@@ -154,22 +156,18 @@ echo "Extracting Element Web $VERSION_LATEST..."
 if ! tar -xzf "$ARCHIVE_FILE" \
     --strip-components=1 \
     -C "$EXTRACT_DIR"; then
-    echo "Error: Failed to extract Element Web $VERSION_LATEST."
-    rm -f "$ARCHIVE_FILE"
-    rm -rf "$EXTRACT_DIR"
-    exit 1
+    err "Failed to extract Element Web $VERSION_LATEST."
 fi
 
 # Sanity check: make sure the archive actually contains Element Web files
 # before touching the current installation. The `version` file is required
 # because the script relies on it to track the installed version.
 if [ ! -f "$EXTRACT_DIR/index.html" ] || [ ! -f "$EXTRACT_DIR/version" ]; then
-    echo "Error: The downloaded archive does not look like an Element Web release."
-    echo "Element Web may have changed its release structure and the script needs to be updated."
-    echo "The current installation was left untouched."
-    rm -f "$ARCHIVE_FILE"
-    rm -rf "$EXTRACT_DIR"
-    exit 1
+    err "The downloaded archive does not look like an Element Web release.
+
+Element Web may have changed its release structure and the script needs to be updated.
+
+The current installation was left untouched."
 fi
 
 echo "Replacing installed Element Web files..."
@@ -180,10 +178,9 @@ find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -exec rm -rf {
 # user configuration in DESTINATION is not overwritten by `cp -a`.
 rm -f "$EXTRACT_DIR/config.json"
 
-cp -a "$EXTRACT_DIR"/. "$DESTINATION"/
-
-rm -f "$ARCHIVE_FILE"
-rm -rf "$EXTRACT_DIR"
+if ! cp -a "$EXTRACT_DIR"/. "$DESTINATION"/; then
+    err "Failed to copy Element Web files to $DESTINATION."
+fi
 
 if [ -n "$VERSION_INSTALLED" ]; then
     echo "Element Web successfully updated from $VERSION_INSTALLED to $VERSION_LATEST."
