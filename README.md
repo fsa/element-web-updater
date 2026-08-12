@@ -10,28 +10,27 @@ A simple Bash script for installing and updating [Element Web](https://github.co
 ## Features
 
 - Automatically detects the latest Element Web release.
-- Checks the currently installed version.
-- Skips the update if the latest version is already installed.
+- Checks the currently installed version and skips the update if it is already up to date.
 - Supports both fresh installations and updates.
 - Preserves the existing `config.json`.
-- Safely downloads and extracts the new release before replacing the current installation.
+- Downloads and verifies the release archive (SHA-256) before touching the current installation.
 - Removes files from previous releases that are no longer present in the new release.
-- Shows a download progress bar when run interactively.
-- Keeps output clean when run from `systemd`, cron, or another non-interactive environment.
+- Shows a download progress bar when run interactively and stays quiet under `systemd`, cron, or another non-interactive environment.
 
 ## Requirements
 
 - Bash
 - `curl`
-- `grep` with PCRE support
+- `sha256sum`
 - `tar`
 - `find`
+- `sed` and `awk` (POSIX, normally preinstalled)
 
 No additional packages or runtime environments are required.
 
 ## Configuration
 
-The script can be configured using variables defined at the beginning of the script. All of these variables can also be overridden using an optional `.env` file.
+The script is configured using variables at the very top of the script. All of them can also be overridden using an optional `.env` file.
 
 ### `DESTINATION`
 
@@ -85,7 +84,9 @@ REPO="element-hq/element-web"
 
 ### `.env`
 
-The `.env` file is optional. If present in the current working directory, it is loaded by the script and its values override the default values.
+The `.env` file is optional. If present in the current working directory, it overrides the default values.
+
+Only the `DESTINATION`, `TMP_DIR` and `REPO` keys are read; everything else is ignored. Values may be quoted, comments and empty lines are allowed. The file is parsed, not executed.
 
 Example:
 
@@ -97,43 +98,51 @@ REPO="element-hq/element-web"
 
 If no `.env` file is provided, the default values defined in the script are used.
 
+Because the file is looked up in the current working directory, when running the script from `cron` or a `systemd` timer make sure the working directory (the `WorkingDirectory=` option in systemd, or a `cd` in cron) points to the directory that contains `.env`.
+
 ## How it works
 
-The script checks for the installed version in:
+The installed version is read from `$DESTINATION/version`. This file is shipped inside the release archive itself (its value includes a `v` prefix, e.g. `v1.12.25`, which the script normalizes), so the script does not maintain its own version file.
 
-```text
-$DESTINATION/version
-```
-
-If no version is found, the destination directory must be empty, except for `config.json`. This prevents the script from accidentally overwriting unrelated files.
+For a fresh install, `$DESTINATION` must be empty except for `config.json`. This prevents the script from accidentally overwriting unrelated files.
 
 For an existing installation, the script:
 
 1. Checks the latest Element Web release on GitHub.
-2. Downloads the release archive to a temporary directory.
+2. Downloads the release archive to `$TMP_DIR` and verifies its SHA-256 digest.
 3. Extracts the archive to a temporary directory.
-4. Preserves the existing `config.json`.
-5. Replaces the installed Element Web files with the new release.
-6. Removes files that were present in the previous release but are no longer included.
-7. Updates the `version` file.
+4. Verifies the archive looks like Element Web (contains `index.html` and `version`).
+5. Removes the old installation files (keeping `config.json`) and copies the new release into place.
+6. The `version` file is copied together with the other files, so the installed version is always tracked.
 
-If downloading or extracting the new release fails, the existing installation is left untouched.
+If downloading, verifying or extracting fails, the current installation is left untouched.
+
+Note: step 5 is **not atomic** — the old files are deleted before the new ones are copied. A failure during the copy (for example a full disk) can leave a partial installation. Keep a backup.
 
 ## Usage
 
-Run the script manually:
+Make the script executable and run it:
 
 ```bash
-./update-element.sh
+chmod +x element-web-updater.sh
+./element-web-updater.sh
 ```
 
-It can also be executed periodically using `systemd` timers or another scheduler.
+or run it directly with Bash:
+
+```bash
+bash element-web-updater.sh
+```
+
+Files are copied with the permissions and ownership of the user running the script. If your web server runs under a different user (for example `www-data`), make sure the installation directory is writable by the script's user, or run the script as the web server user and adjust ownership afterwards.
+
+The script can also be executed periodically using `systemd` timers or another scheduler.
 
 ## Configuration file
 
 The `config.json` file is considered user-managed and is never overwritten by the script.
 
-The configuration shipped with Element Web is ignored during extraction, allowing the local configuration to survive updates.
+The release archive ships a `config.sample.json` instead of a `config.json`. As a safety measure the script also removes any `config.json` from the extracted archive before copying, so a preserved user configuration always survives an update.
 
 ## Important
 
