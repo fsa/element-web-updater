@@ -34,9 +34,7 @@ err() {
 }
 
 cleanup() {
-    [ -n "${ARCHIVE_FILE:-}" ] && rm -f "$ARCHIVE_FILE"
-    [ -n "${EXTRACT_DIR:-}" ] && rm -rf "$EXTRACT_DIR"
-    return 0
+    [ -n "${WORK_DIR:-}" ] && rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
 
@@ -48,10 +46,37 @@ if [ -z "$DESTINATION" ]; then
     err "DESTINATION is not set. Set the DESTINATION environment variable."
 fi
 
+# Relative paths are not allowed.
+case "$DESTINATION" in
+    /*) ;;
+    *) err "DESTINATION must be an absolute path." ;;
+esac
+
+case "$TMP_DIR" in
+    /*) ;;
+    *) err "TMP_DIR must be an absolute path." ;;
+esac
+
 # Guard against dangerous or misconfigured paths before doing anything else.
 if [ "$TMP_DIR" = "$DESTINATION" ]; then
     err "TMP_DIR must be different from DESTINATION."
 fi
+
+# Do not allow TMP_DIR and DESTINATION to be nested inside each other:
+# the unique working directory is created inside TMP_DIR, so a TMP_DIR
+# inside DESTINATION (or a DESTINATION inside TMP_DIR) could let a cleanup
+# delete the installation or vice versa.
+case "$TMP_DIR" in
+    "$DESTINATION"/*)
+        err "TMP_DIR must not be located inside DESTINATION."
+        ;;
+esac
+
+case "$DESTINATION" in
+    "$TMP_DIR"/*)
+        err "DESTINATION must not be located inside TMP_DIR."
+        ;;
+esac
 
 case "$DESTINATION" in
     /)
@@ -137,10 +162,12 @@ ARCHIVE_URL="https://github.com/$REPO/releases/download/v${VERSION_LATEST}/eleme
 
 echo "Downloading Element Web $VERSION_LATEST..."
 
-ARCHIVE_FILE="$TMP_DIR/element-v${VERSION_LATEST}.tar.gz"
-EXTRACT_DIR="$TMP_DIR/element-v${VERSION_LATEST}"
+WORK_DIR=$(mktemp -d "$TMP_DIR/element-web-updater.XXXXXX") ||
+    err "Cannot create temporary directory in $TMP_DIR."
 
-rm -rf "$EXTRACT_DIR"
+ARCHIVE_FILE="$WORK_DIR/element.tar.gz"
+EXTRACT_DIR="$WORK_DIR/extracted"
+
 mkdir -p "$EXTRACT_DIR"
 
 if [ -t 1 ]; then
@@ -180,6 +207,16 @@ if [ ! -f "$EXTRACT_DIR/index.html" ] || [ ! -f "$EXTRACT_DIR/version" ]; then
 Element Web may have changed its release structure and the script needs to be updated.
 
 The current installation was left untouched."
+fi
+
+# Verify that the version inside the archive matches the version the script
+# asked for. This runs before anything in DESTINATION is touched.
+ARCHIVE_VERSION="$(< "$EXTRACT_DIR/version")"
+ARCHIVE_VERSION="${ARCHIVE_VERSION#v}"
+ARCHIVE_VERSION="${ARCHIVE_VERSION//[[:space:]]/}"
+
+if [ "$ARCHIVE_VERSION" != "$VERSION_LATEST" ]; then
+    err "The version in the downloaded archive ($ARCHIVE_VERSION) does not match the expected version ($VERSION_LATEST)."
 fi
 
 echo "Replacing installed Element Web files..."
