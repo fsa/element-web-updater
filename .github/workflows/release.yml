@@ -25,7 +25,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           STAGE="dist/element-web-updater-${VERSION}"
           mkdir -p "$STAGE"
-          cp element-web-updater.sh README.md LICENSE "$STAGE/"
+          cp element-web-updater.sh README.md "$STAGE/"
           tar -czf "dist/element-web-updater-${VERSION}.tar.gz" -C dist "element-web-updater-${VERSION}"
           ( cd dist && sha256sum "element-web-updater-${VERSION}.tar.gz" > SHA256SUMS )
 

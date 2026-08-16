@@ -30,18 +30,18 @@ No additional packages or runtime environments are required.
 
 ## Configuration
 
-The script is configured using variables at the very top of the script. All of them can also be overridden using an optional `.env` file.
+The defaults live in the "Configuration" section at the top of `element-web-updater.sh` and can be edited directly. The same values can be passed as environment variables, which override the defaults without touching the script.
 
 ### `DESTINATION`
 
 The directory where Element Web is installed.
 
-There is **no default**: `DESTINATION` must always be provided, either in the `.env` file or at the top of the script.
+There is **no default**: `DESTINATION` must always be set.
 
 Example:
 
-```dotenv
-DESTINATION="/var/www/element"
+```bash
+DESTINATION=/var/www/element bash element-web-updater.sh
 ```
 
 ### `TMP_DIR`
@@ -50,51 +50,29 @@ The directory used for downloading the release archive and temporarily extractin
 
 It **must be different from `DESTINATION`**.
 
-Default:
-
-```bash
-TMP_DIR="/tmp"
-```
+Default: `/tmp`
 
 Example:
 
-```dotenv
-TMP_DIR="/var/tmp/element"
+```bash
+DESTINATION=/var/www/element TMP_DIR=/var/tmp/element bash element-web-updater.sh
 ```
 
 ### `REPO`
 
 The GitHub repository from which the Element Web releases are downloaded.
 
-Default:
+Default: `element-hq/element-web`
+
+Example:
 
 ```bash
-REPO="element-hq/element-web"
+DESTINATION=/var/www/element REPO=element-hq/element-web bash element-web-updater.sh
 ```
 
-Example:
+The variables can be passed inline as shown above, or exported first. When running the script from `cron` or a `systemd` timer, set them in the service unit with `Environment=` or `EnvironmentFile=` (see below).
 
-```dotenv
-REPO="element-hq/element-web"
-```
-
-### `.env`
-
-The `.env` file is optional. If present in the current working directory, it overrides the default values.
-
-Only the `DESTINATION`, `TMP_DIR` and `REPO` keys are read; everything else is ignored. Values may be quoted, comments and empty lines are allowed. The file is parsed, not executed.
-
-Example:
-
-```dotenv
-DESTINATION="/var/www/element"
-TMP_DIR="/var/tmp/element"
-REPO="element-hq/element-web"
-```
-
-If no `.env` file is provided, the default values defined in the script are used.
-
-Because the file is looked up in the current working directory, when running the script from `cron` or a `systemd` timer make sure the working directory (the `WorkingDirectory=` option in systemd, or a `cd` in cron) points to the directory that contains `.env`.
+The defaults in the script header are used whenever the corresponding environment variable is unset, so editing the script is only needed if you want a fixed default for everyone running it.
 
 ## How it works
 
@@ -138,7 +116,7 @@ The script can also be executed periodically using `systemd` timers. See [Schedu
 
 Release archives are published on the [Releases](https://github.com/fsa/element-web-updater/releases) page and contain:
 
-- `element-web-updater-<version>.tar.gz` — the script, the `README.md` and the `LICENSE` (MIT);
+- `element-web-updater-<version>.tar.gz` — the script and the `README.md`;
 - `SHA256SUMS` — checksums of the archive for integrity verification.
 
 Verify the archive before using it:
@@ -167,7 +145,7 @@ Wants=network-online.target
 Type=oneshot
 User=www-data
 Group=www-data
-WorkingDirectory=/srv/element-web-updater
+Environment=DESTINATION=/var/www/element
 ExecStart=/srv/element-web-updater/element-web-updater.sh
 NoNewPrivileges=true
 PrivateTmp=true
@@ -180,7 +158,7 @@ WantedBy=multi-user.target
 Notes on the service unit:
 
 - `User=` and `Group=` must be set to the user that runs the web server (here `www-data`). That user must be able to read and execute the updater script and to write to `DESTINATION`.
-- `WorkingDirectory=` must point to the directory that contains the updater's `.env` file — the script looks it up in the current working directory. If you do not use a `.env` file, point it to any directory and configure `DESTINATION`, `TMP_DIR` and `REPO` at the top of the script instead.
+- `DESTINATION`, `TMP_DIR` and `REPO` are passed with `Environment=` in the unit, or with an `EnvironmentFile=` containing lines like `DESTINATION=/var/www/element` (see [Configuration](#configuration)).
 - `PrivateTmp=true` gives the service an isolated temporary directory. With the default `TMP_DIR=/tmp` the download and extraction happen inside that private directory and are cleaned up automatically.
 - When run by systemd, stdout is not a terminal, so the script stays quiet and does not show a progress bar.
 
@@ -207,7 +185,7 @@ WantedBy=timers.target
 
 ### Enabling the timer
 
-Make sure the installation directory is writable by the web server user, and that the updater script and its `.env` file are readable by it:
+Make sure the installation directory is writable by the web server user, and that the updater script is readable and executable by it:
 
 ```bash
 sudo chown -R www-data:www-data /var/www/element
@@ -238,7 +216,7 @@ sudo systemctl start element-web-updater.service
 
 - If `DESTINATION` is not writable by the user set with `User=`, the update will fail. Either run the service as the owner of the installation directory, or change its ownership with `chown`.
 - With `ProtectSystem=full`, the directories `/usr`, `/boot` and `/etc` are read-only. `DESTINATION` and `TMP_DIR` must live outside of them; if that does not fit your setup, drop or adjust the hardening options.
-- The examples assume the web server runs under `www-data` and that `.env` contains `DESTINATION="/var/www/element"`. Adjust `User=`, `Group=`, `WorkingDirectory=` and the `chown` target to your environment.
+- The examples assume the web server runs under `www-data` and that `DESTINATION` is set to `/var/www/element` via the service unit's `Environment=`. Adjust `User=`, `Group=`, `WorkingDirectory=` and the `chown` target to your environment.
 
 ## Configuration file
 

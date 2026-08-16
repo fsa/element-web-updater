@@ -1,18 +1,30 @@
 #!/bin/bash
 
-# Installation directory.
-# There is no default: DESTINATION must always be provided, either in
-# the .env file or by setting the variable here.
-# DESTINATION="/var/www/element"
+# Element Web Updater
+#
+# Repository: https://github.com/fsa/element-web-updater
+# License:    MIT (https://github.com/fsa/element-web-updater/blob/main/LICENSE)
+#
+# -----------------------------------------------------------------------------
+# Configuration
+# -----------------------------------------------------------------------------
+# The values below are the defaults. Edit them directly to change the
+# behaviour, or override them with the corresponding environment variables:
+#
+#   DESTINATION=/var/www/element bash element-web-updater.sh
+#
+# DESTINATION is mandatory and has no default; when left empty the script
+# refuses to run.
+#
+#   DESTINATION   Installation directory (required).
+#   TMP_DIR       Directory used for downloading and temporarily
+#                 extracting files (default: /tmp).
+#   REPO          GitHub repository with the Element Web releases
+#                 (default: element-hq/element-web).
 
-# Directory used for downloading and temporarily extracting files.
-# Must be different from the installation directory.
-# Can be overridden in the .env file.
-TMP_DIR="/tmp"
-
-# GitHub repository containing the Element Web releases.
-# Can be overridden in the .env file.
-REPO="element-hq/element-web"
+DESTINATION="${DESTINATION:-}"
+TMP_DIR="${TMP_DIR:-/tmp}"
+REPO="${REPO:-element-hq/element-web}"
 
 set -euo pipefail
 
@@ -31,28 +43,9 @@ trap cleanup EXIT
 command -v curl >/dev/null 2>&1 || err "cURL is required and is not found"
 command -v sha256sum >/dev/null 2>&1 || err "sha256sum is required and is not found"
 
-# Load the .env file without executing it as shell code: only the allowed
-# variables are read, quoted values are stripped, comments and empty lines
-# are ignored.
-if [ -f ".env" ]; then
-    while IFS='=' read -r key value; do
-        [ -z "$key" ] && continue
-        case "$key" in
-            \#*) continue ;;
-        esac
-        value="${value%\"}"
-        value="${value#\"}"
-        case "$key" in
-            DESTINATION) DESTINATION="$value" ;;
-            TMP_DIR) TMP_DIR="$value" ;;
-            REPO) REPO="$value" ;;
-        esac
-    done < .env
-fi
-
 # DESTINATION is mandatory and has no default.
-if [ -z "${DESTINATION:-}" ]; then
-    err "DESTINATION is not set. Specify it in the .env file or at the top of the script."
+if [ -z "$DESTINATION" ]; then
+    err "DESTINATION is not set. Set the DESTINATION environment variable."
 fi
 
 # Guard against dangerous or misconfigured paths before doing anything else.
