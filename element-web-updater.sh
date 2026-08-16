@@ -80,7 +80,9 @@ if [ -f "$DESTINATION/version" ]; then
     # The release archive ships its own `version` file (e.g. `v1.12.25`),
     # which is copied into DESTINATION by `cp -a`. Normalize it so that the
     # comparison with VERSION_LATEST (no `v` prefix) works.
-    VERSION_INSTALLED=$(cat "$DESTINATION/version" | sed -e 's/^v//' -e 's/[[:space:]]//g')
+    VERSION_INSTALLED="$(< "$DESTINATION/version")"
+    VERSION_INSTALLED="${VERSION_INSTALLED#v}"
+    VERSION_INSTALLED="${VERSION_INSTALLED//[[:space:]]/}"
 else
     VERSION_INSTALLED=""
 fi
@@ -90,22 +92,24 @@ if ! RELEASE_JSON=$(curl -fsSL "$API_URL"); then
     err "Failed to fetch release information from GitHub API."
 fi
 
-VERSION_LATEST=$(printf '%s' "$RELEASE_JSON" | sed -nE 's/.*"tag_name": "v([^"]+)".*/\1/p')
+# Extract the latest release version from the API response using bash
+# parameter expansion instead of an external tool.
+VERSION_LATEST="${RELEASE_JSON#*\"tag_name\": \"v}"
+VERSION_LATEST="${VERSION_LATEST%%\"*}"
 
 if [ -z "$VERSION_LATEST" ]; then
     err "Failed to determine the latest Element Web version."
 fi
 
 # SHA-256 digest of the release asset, taken from the same API response.
-DIGEST=$(printf '%s' "$RELEASE_JSON" | awk -v v="$VERSION_LATEST" '
-    index($0, "\"name\": \"element-v" v ".tar.gz\"") { capture = 1 }
-    capture && /"digest": "sha256:/ {
-        sub(/^.*"digest": "sha256:/, "")
-        sub(/".*$/, "")
-        print
-        exit
-    }
-')
+DIGEST=""
+asset_part="${RELEASE_JSON#*\"name\": \"element-v${VERSION_LATEST}.tar.gz\"}"
+if [ "$asset_part" != "$RELEASE_JSON" ]; then
+    digest_part="${asset_part#*\"digest\": \"sha256:}"
+    if [ "$digest_part" != "$asset_part" ]; then
+        DIGEST="${digest_part%%\"*}"
+    fi
+fi
 
 if [ "$VERSION_INSTALLED" = "$VERSION_LATEST" ]; then
     echo "Element Web version $VERSION_LATEST is already installed. No update is required."
@@ -113,11 +117,16 @@ if [ "$VERSION_INSTALLED" = "$VERSION_LATEST" ]; then
 fi
 
 if [ -z "$VERSION_INSTALLED" ]; then
-    if [ -n "$(find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -print -quit)" ]; then
-        err "Element Web version was not detected, but the installation directory is not empty.
+    shopt -s nullglob dotglob
+    entries=("$DESTINATION"/*)
+    shopt -u nullglob dotglob
+    for entry in "${entries[@]}"; do
+        if [ "${entry##*/}" != "config.json" ]; then
+            err "Element Web version was not detected, but the installation directory is not empty.
 
 Installation aborted to avoid overwriting existing files."
-    fi
+        fi
+    done
 
     echo "Element Web is not installed. Installing version $VERSION_LATEST..."
 else
@@ -175,7 +184,13 @@ fi
 
 echo "Replacing installed Element Web files..."
 
-find "$DESTINATION" -mindepth 1 -maxdepth 1 ! -name 'config.json' -exec rm -rf {} +
+shopt -s nullglob dotglob
+for entry in "$DESTINATION"/*; do
+    if [ "${entry##*/}" != "config.json" ]; then
+        rm -rf "$entry"
+    fi
+done
+shopt -u nullglob dotglob
 
 # Remove the release's own config.json (if any) so that the preserved
 # user configuration in DESTINATION is not overwritten by `cp -a`.

@@ -23,8 +23,6 @@ A simple Bash script for installing and updating [Element Web](https://github.co
 - `curl`
 - `sha256sum`
 - `tar`
-- `find`
-- `sed` and `awk` (POSIX, normally preinstalled)
 
 No additional packages or runtime environments are required.
 
