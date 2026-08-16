@@ -116,7 +116,7 @@ The script can also be executed periodically using `systemd` timers. See [Schedu
 
 Release archives are published on the [Releases](https://github.com/fsa/element-web-updater/releases) page and contain:
 
-- `element-web-updater-<version>.tar.gz` — the script and the `README.md`;
+- `element-web-updater-<version>.tar.gz` — the script;
 - `SHA256SUMS` — checksums of the archive for integrity verification.
 
 Verify the archive before using it:
